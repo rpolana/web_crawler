@@ -1,3 +1,5 @@
+# Description and Purpose
+Crawl and save contents of web pages starting from a root url
 ## LICENSE INFO
 ```
 __license__ = "MIT"
@@ -21,7 +23,15 @@ __license__ = "MIT"
 ### pip installs
 * pip install -r requirements.txt
 ### 
-## Project requirements 
+## Requirements
+* Ability to save the webpages as .html and pdf as .pdf files etc.
+* Ability to crawl to certain depth from the root url
+* Ability to crawl certain types of content only
+* Ability to associate saved file to the corresponding web page url
+    * Robustness against url path characters not allowed in filenames
+* Ability to trace the saved file conent back to the path of the web page starting from root url  
+* Ability to rerun when crashed without having to recrawl pages already crawled
+
 ## Design notes and diagrams
 ## Dependencies
 * API keys 
