@@ -13,6 +13,10 @@ import os
 import sys
 import argparse
 import json
+import re
+import requests
+import urllib
+
 
 import logging
 LOGGER_NAME =  os.path.splitext(os.path.basename(__file__))[0]
@@ -27,14 +31,14 @@ PDF_CONTENT_TYPE = 'application/pdf'
 HTML_CONTENT_TYPE = 'text/html'
 JSON_CONTENT_TYPE = 'application/json'
 XML_CONTENT_TYPE = 'application/xml'
-CRAWLED_PAGES_FILENAME_SUFFIX = '_crawled_pages.xlsx'
+CRAWL_FILENAME_SUFFIX = '_crawled_pages.xlsx'
 VISITED_URLS_COLUMN = 0
 VISITED_URL_PATHS_COLUMN = 2
-SAVE_CRAWLED_PAGES_TO_FILE_DEFAULT = True
+save_crawl_to_file_DEFAULT = True
 OUTPUT_DIR_DEFAULT = r'./web_crawler_output'
-MAX_DEPTH_DEFAULT = -1
+MAX_DEPTH_DEFAULT = 0
 
-import requests
+
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from tldextract import extract as tld_extract
@@ -45,11 +49,11 @@ def main(args):
     """ Main logic """
     args.MAX_DEPTH = int(args.MAX_DEPTH)
     args.ROOT_URL_TLD_CRAWL_FLAG = bool(args.ROOT_URL_TLD_CRAWL_FLAG)
-    args.SAVE_CRAWLED_PAGES_TO_FILE_FLAG = bool(args.SAVE_CRAWLED_PAGES_TO_FILE_FLAG)
-    crawl(args.ROOT_URL, args.ROOT_URL_TLD_CRAWL_FLAG, 
-          args.MAX_DEPTH, args.OUTPUT_DIR, args.SAVE_CRAWLED_PAGES_TO_FILE_FLAG)
+    args.SAVE_CRAWL_TO_FILE_FLAG = bool(args.SAVE_CRAWL_TO_FILE_FLAG)
+    crawl(args.ROOT_URL, args.ROOT_URL_TLD_CRAWL_FLAG, args.CONTENT_TYPES,
+          args.MAX_DEPTH, args.OUTPUT_DIR, args.SAVE_CRAWL_TO_FILE_FLAG)
 
-def crawl(root_url, crawl_root_url_tld, max_depth, output_dir, save_crawled_pages_to_file):
+def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, save_crawl_to_file):
     root_url = root_url.strip('/')
     root_url_parsed = urlparse(root_url)
     root_domain = root_url_parsed.netloc
@@ -76,24 +80,26 @@ def crawl(root_url, crawl_root_url_tld, max_depth, output_dir, save_crawled_page
         saved_file_basenames = set([os.path.splitext(saved_file)[0].lower() for saved_file in saved_files])
         logger.info(f'Loaded {len(saved_files)} saved file basenames from directory {save_dir}')
 
-    if save_crawled_pages_to_file:
-        crawled_pages_filename = os.path.join(output_dir, root_domain + CRAWLED_PAGES_FILENAME_SUFFIX)
-        logger.info(f'crawled_pages_filename={crawled_pages_filename}')
-        if os.path.exists(crawled_pages_filename):
-            wb = load_workbook(crawled_pages_filename)
+    if save_crawl_to_file:
+        crawl_filename = os.path.join(output_dir, root_domain + '-c_'+ content_types + '-d_'+str(max_depth) + CRAWL_FILENAME_SUFFIX)
+        crawl_filename = urllib.parse.quote(crawl_filename, safe='', encoding=None, errors=None)
+
+        logger.info(f'crawl_filename={crawl_filename}')
+        if os.path.exists(crawl_filename):
+            wb = load_workbook(crawl_filename)
             ws = wb.active
             total_urls_crawled = ws.max_row - 1
             for row in ws.iter_rows(min_row=2, values_only=True):
                 visited_url_paths.append(row[VISITED_URL_PATHS_COLUMN].split(', '))
                 visited_urls.add(row[VISITED_URLS_COLUMN])
-            logger.info(f'Loaded {total_urls_crawled} previously crawled pages from {crawled_pages_filename}')
+            logger.info(f'Loaded {total_urls_crawled} previously crawled pages from {crawl_filename}')
             wb.close()
         else:
             wb = Workbook()
             # ws = wb.create_sheet()
             ws = wb.active # default sheet
             ws.append(['URL', 'Content Size', 'URL Path'])
-            wb.save(crawled_pages_filename)
+            wb.save(crawl_filename)
 
     while len(url_paths) > 0:
         current_url_path = url_paths.pop()
@@ -112,25 +118,29 @@ def crawl(root_url, crawl_root_url_tld, max_depth, output_dir, save_crawled_page
             logger.error(f'ERROR: exception while fetching {current_url}: {e}')
             continue
         try:
-            content_type = response.headers.get(CONTENT_TYPE_HEADER)
-            content_type = content_type.split(';')[0]
+            content_type_header = response.headers.get(CONTENT_TYPE_HEADER)
             content = response.content
         except Exception as e:
             logger.error(f'ERROR: exception while parsing header and content in response from {current_url}: {e}')
             continue
+        content_type = get_content_type_from_response_header(content_type_header)
+
+        if re.match(content_type, content_types, re.IGNORECASE) is None:
+            logger.error(f'--Skipping <{current_url}>: content type {content_type} not matching any of the content types: {content_types}')
+            continue
         save_result = save_url_content_to_file(current_url, content, content_type, save_file_basename)
-        if save_result and save_crawled_pages_to_file:
-            wb = load_workbook(crawled_pages_filename)
+        if save_result and save_crawl_to_file:
+            wb = load_workbook(crawl_filename)
             ws = wb.active
             ws.append([current_url, str(len(content)), ', '.join(current_url_path)])
-            logger.debug(f'Saved {current_url} to {crawled_pages_filename}')
-            wb.save(crawled_pages_filename)
+            logger.debug(f'Saved {current_url} to {crawl_filename}')
+            wb.save(crawl_filename)
         # mark the current URL as visited
         visited_url_paths.append(current_url_path)
         visited_urls.add(current_url)
         logger.debug(f'--Visited link <{current_url}>: visited: {len(visited_urls)}, remaining: {len(url_paths)}')
         
-        if max_depth >= 0 and len(current_url_path) >= max_depth:
+        if max_depth > 0 and len(current_url_path) >= max_depth:
             logger.info(f'--Skipping links in <{current_url_path}>: max depth {max_depth} reached')
             continue
 
@@ -180,7 +190,6 @@ def crawl(root_url, crawl_root_url_tld, max_depth, output_dir, save_crawled_page
                 logger.debug(f'--Discarding link <{url}>: external domain')
 
 def get_save_file_basename(output_dir, current_url):
-    import urllib
     url_parsed = urlparse(current_url)
     file_basename = url_parsed.netloc
     url_path_to_file_basename = ''
@@ -189,17 +198,23 @@ def get_save_file_basename(output_dir, current_url):
         # path_to_file_basename += url_parsed.path.replace('/', '_')
     return os.path.join(output_dir, file_basename + url_path_to_file_basename)
 
+
+def get_content_type_from_response_header(content_type_header):
+    content_type = content_type_header.split(';')[0]
+    content_type_fields = content_type.split('/')
+    if len(content_type_fields) == 1:
+        return content_type_fields[0]
+    elif content_type_fields[1].lower() == 'application':
+        return content_type_fields[0]
+    else:
+        return content_type_fields[1]
+
 def save_url_content_to_file(current_url, content, content_type, file_basename):
     file_extension = ''
     if len(os.path.splitext(file_basename)[1]) == 0: 
-        content_type_fields = content_type.split('/')
-        if len(content_type_fields) == 1:
-            file_extension = '.' + content_type_fields[0]
-        elif content_type_fields[1].lower() == 'application':
-            file_extension = '.' + content_type_fields[0]
-        else:
-            file_extension = '.' + content_type_fields[1]
+            file_extension = '.' + content_type
     filename = file_basename + file_extension
+
     if os.path.exists(filename):
         logger.info(f'Already saved content of url <{current_url}> into file <{filename}>')
         return False
@@ -223,8 +238,9 @@ def get_args():
     parser.add_argument('-u', '--ROOT_URL', help="root url of webpage or website to be crawled", required=True)
     parser.add_argument('-t', '--ROOT_URL_TLD_CRAWL_FLAG', help="flag to indicate to crawl all of the pages matching top level domain of url", required=False)
     parser.add_argument('-d', '--MAX_DEPTH', help="depth of web pages to crawl", default=MAX_DEPTH_DEFAULT, required=False)
-    parser.add_argument('-s', '--SAVE_CRAWLED_PAGES_TO_FILE_FLAG', help="flag to indicate to save list of crawled pages to a file", 
-                        default=SAVE_CRAWLED_PAGES_TO_FILE_DEFAULT, required=False)
+    parser.add_argument('-s', '--SAVE_CRAWL_TO_FILE_FLAG', help="flag to indicate to save list of crawled pages to a file", 
+                        default=save_crawl_to_file_DEFAULT, required=False)
+    parser.add_argument('-c', '--CONTENT_TYPES', help="regular expression of content types to save when crawling (only matching content types will be saved)", default='*', required=False)
     l_args = parser.parse_args()
     # logger.info(vars(l_args))
     # logger.info('\n')

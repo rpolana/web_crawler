@@ -1,5 +1,5 @@
 /.vscode
-/web_crawler.log
-/web_crawler.zip
-/web_crawler_output
-/www.usaid.gov%2Fsites%2Fdefault%2Ffiles%2F2022-10%2FTab%25202%2520-%2520UNDP%2520Funding%2520Facility%2520for%2520Stabilization%2520%2528FFS%2529_summary%2520progress%2520report_2021.pdf
+/*.log
+/*.zip
+/*output/
+/data/
