@@ -51,9 +51,10 @@ def main(args):
     args.ROOT_URL_TLD_CRAWL_FLAG = bool(args.ROOT_URL_TLD_CRAWL_FLAG)
     args.SAVE_CRAWL_TO_FILE_FLAG = bool(args.SAVE_CRAWL_TO_FILE_FLAG)
     crawl(args.ROOT_URL, args.ROOT_URL_TLD_CRAWL_FLAG, args.CONTENT_TYPES,
-          args.MAX_DEPTH, args.OUTPUT_DIR, args.SAVE_CRAWL_TO_FILE_FLAG)
+          args.MAX_DEPTH, args.OUTPUT_DIR, args.SAVE_CRAWL_TO_FILE_FLAG, 
+          args.FORCE_CRAWL_FLAG)
 
-def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, save_crawl_to_file):
+def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, save_crawl_to_file, force_crawl):
     root_url = root_url.strip('/')
     root_url_parsed = urlparse(root_url)
     root_domain = root_url_parsed.netloc
@@ -85,7 +86,7 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, sa
         crawl_filename = urllib.parse.quote(crawl_filename, safe='', encoding=None, errors=None)
 
         logger.info(f'crawl_filename={crawl_filename}')
-        if os.path.exists(crawl_filename):
+        if os.path.exists(crawl_filename) and not force_crawl:
             wb = load_workbook(crawl_filename)
             ws = wb.active
             total_urls_crawled = ws.max_row - 1
@@ -108,7 +109,7 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, sa
         current_url = current_url_path[-1]
         save_file_basename = get_save_file_basename(save_dir, current_url)
         save_file_basename_temp = os.path.splitext(os.path.basename(save_file_basename))[0]
-        if save_file_basename_temp.lower() in saved_file_basenames:
+        if save_file_basename_temp.lower() in saved_file_basenames and not force_crawl:
             logger.info(f'--Skipping <{current_url}>: already crawled and saved in file with basename: {save_file_basename}')
             continue
         logger.info(f'Visiting link <{current_url}>: visited: {len(visited_url_paths)}, remaining: {len(url_paths)}')
@@ -125,7 +126,7 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, sa
             continue
         content_type = get_content_type_from_response_header(content_type_header)
 
-        if re.match(content_type, content_types, re.IGNORECASE) is None:
+        if len(content_types) > 0 and re.match(content_types, content_type, re.IGNORECASE) is None:
             logger.error(f'--Skipping <{current_url}>: content type {content_type} not matching any of the content types: {content_types}')
             continue
         save_result = save_url_content_to_file(current_url, content, content_type, save_file_basename)
@@ -145,7 +146,7 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, sa
             continue
 
         # if current url is html, parse and crawl links within
-        if not content_type == HTML_CONTENT_TYPE:
+        if not content_type.lower() in HTML_CONTENT_TYPE:
             continue
         try:
             soup = BeautifulSoup(content, "html5lib")
@@ -240,7 +241,9 @@ def get_args():
     parser.add_argument('-d', '--MAX_DEPTH', help="depth of web pages to crawl", default=MAX_DEPTH_DEFAULT, required=False)
     parser.add_argument('-s', '--SAVE_CRAWL_TO_FILE_FLAG', help="flag to indicate to save list of crawled pages to a file", 
                         default=save_crawl_to_file_DEFAULT, required=False)
-    parser.add_argument('-c', '--CONTENT_TYPES', help="regular expression of content types to save when crawling (only matching content types will be saved)", default='*', required=False)
+    parser.add_argument('-f', '--FORCE_CRAWL_FLAG', help="flag to indicate to force crawl of previously crawled pages", 
+                        action='store_true')
+    parser.add_argument('-c', '--CONTENT_TYPES', help="regular expression of content types to save when crawling (only matching content types will be saved)", default='', required=False)
     l_args = parser.parse_args()
     # logger.info(vars(l_args))
     # logger.info('\n')
