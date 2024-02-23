@@ -112,7 +112,7 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, sa
         if save_file_basename_temp.lower() in saved_file_basenames and not force_crawl:
             logger.info(f'--Skipping <{current_url}>: already crawled and saved in file with basename: {save_file_basename}')
             continue
-        logger.info(f'Visiting link <{current_url}>: visited: {len(visited_url_paths)}, remaining: {len(url_paths)}')
+        logger.info(f'Visiting link <{current_url}> at depth {len(current_url_path)}: visited: {len(visited_url_paths)}, remaining: {len(url_paths)}')
         try:
             response = requests.get(current_url)
         except Exception as e:
@@ -139,7 +139,7 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, sa
         # mark the current URL as visited
         visited_url_paths.append(current_url_path)
         visited_urls.add(current_url)
-        logger.debug(f'--Visited link <{current_url}>: visited: {len(visited_urls)}, remaining: {len(url_paths)}')
+        logger.debug(f'--Visited link <{current_url}> at depth {len(current_url_path)}: visited: {len(visited_urls)}, remaining: {len(url_paths)}')
         
         if max_depth > 0 and len(current_url_path) >= max_depth:
             logger.info(f'--Skipping links in <{current_url_path}>: max depth {max_depth} reached')
@@ -179,7 +179,7 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, sa
             if root_domain in url_parsed.netloc:
                 # if the URL discovered is new
                 if url not in visited_urls and url not in urls:
-                    logger.info(f'---Appending new link <{url}> from url <{current_url}>: queue length={len(url_paths)}')
+                    logger.info(f'---Appending new link <{url}> at depth {len(current_url_path)+1} from url <{current_url}>: queue length={len(url_paths)}')
                     url_path = current_url_path + [url]
                     url_paths.append(url_path)
                     urls.add(url)
