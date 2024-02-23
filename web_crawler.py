@@ -221,7 +221,7 @@ def save_url_content_to_file(current_url, content, content_type, file_basename):
         return False
     logger.info(f'Writing content of url <{current_url}> into file <{filename}>')
     try:
-        if content_type == PDF_CONTENT_TYPE:
+        if content_type.lower() in PDF_CONTENT_TYPE:
             with open(filename, 'wb') as file:
                 file.write(content)
         else:

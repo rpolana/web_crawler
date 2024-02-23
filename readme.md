@@ -39,6 +39,8 @@ __license__ = "MIT"
 
 ## Quality considerations: Security, robustness, performance etc.
 ## TODO
+<s>    * 22Feb2024: Fix issue: pdf files not opening (corrupted) after last set of new changes. 
+        ** 22Feb2024: Done </s>    
     * Fix the web page file saving to .html in a way that when the file is opened in browser it looks exactly like the webpage (right now looks like the script and css file links are missing when saved)
 
     * Create GUI and single-file executable without python installation for non-technical users and create webapp using streamlit or gradio
