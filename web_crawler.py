@@ -16,6 +16,7 @@ import json
 import re
 import requests
 import urllib
+import shutil
 
 
 import logging
@@ -37,6 +38,7 @@ VISITED_URL_PATHS_COLUMN = 2
 save_crawl_to_file_DEFAULT = True
 OUTPUT_DIR_DEFAULT = r'./web_crawler_output'
 MAX_DEPTH_DEFAULT = 0
+SAVE_MEDIA_FILES_FLAG = False
 
 
 from bs4 import BeautifulSoup
@@ -51,10 +53,10 @@ def main(args):
     args.ROOT_URL_TLD_CRAWL_FLAG = bool(args.ROOT_URL_TLD_CRAWL_FLAG)
     args.SAVE_CRAWL_TO_FILE_FLAG = bool(args.SAVE_CRAWL_TO_FILE_FLAG)
     crawl(args.ROOT_URL, args.ROOT_URL_TLD_CRAWL_FLAG, args.CONTENT_TYPES,
-          args.MAX_DEPTH, args.OUTPUT_DIR, args.SAVE_CRAWL_TO_FILE_FLAG, 
+          args.MAX_DEPTH, args.SAVE_MEDIA_FILES_FLAG, args.OUTPUT_DIR, args.SAVE_CRAWL_TO_FILE_FLAG, 
           args.FORCE_CRAWL_FLAG)
 
-def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, save_crawl_to_file, force_crawl):
+def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_files, output_dir, save_crawl_to_file, force_crawl):
     root_url = root_url.strip('/')
     root_url_parsed = urlparse(root_url)
     root_domain = root_url_parsed.netloc
@@ -114,7 +116,12 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, sa
             continue
         logger.info(f'Visiting link <{current_url}> at depth {len(current_url_path)}: visited: {len(visited_url_paths)}, remaining: {len(url_paths)}')
         try:
-            response = requests.get(current_url)
+            response = requests.get(current_url, 
+                                    headers = {'User-Agent': 'Mozilla/5.0'
+                                            #    ,'Client-ID': '<some id>'
+                                               }
+                                    # , stream = True   # TODO: add this for urls with media files
+                                    )
         except Exception as e:
             logger.error(f'ERROR: exception while fetching {current_url}: {e}')
             continue
@@ -153,6 +160,37 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, output_dir, sa
         except Exception as e:
             logger.error(f'Warning: exception parsing content of {current_url} as html: content_type={content_type}: {e}')
             continue
+        
+        if save_media_files:
+            image_srcs = [img['src'] for img in soup.findAll('img')]
+            for src in image_srcs:
+                r = requests.get(src)
+                image_filename = get_save_file_basename(output_dir, src)
+                with open(image_filename, 'wb') as file:
+                    r.raw.decode_content = True
+                    shutil.copyfileobj(r.raw, file)
+            audio_links = [a['href'] for a in soup.find_all('a',href=re.compile('http*.*\.(mp3|wav|ogg|wma)'))]
+            for audio in audio_links:
+                r = requests.get(audio)
+                audio_filename = get_save_file_basename(output_dir, src)
+                with open(audio_filename, 'wb') as file:
+                    r.raw.decode_content = True
+                    shutil.copyfileobj(r.raw, file)
+            # video_links = soup.find_all('video')['src']
+            video_links = re.findall("http*.*.mp4", soup.script.string)
+            for video in video_links:
+                r = requests.get(video)
+                video_filename = get_save_file_basename(output_dir, src)
+                with open(video_filename, 'wb') as file:
+                    r.raw.decode_content = True
+                    shutil.copyfileobj(r.raw, file)
+            # patt = re.compile(r'mp4:\s*\["(.+?)"\]')
+            # for e in soup.find_all('script'):
+            #     m = patt.search(e.string)
+            # link_mpeg = soup.select_one('source[type="application/x-mpegURL"]')["src"]
+            # link_mp4 = soup.select_one('source[type="video/mp4"]')["src"]
+            # TODO: implement media files
+            logger.error(f'media file crawling is not implemented yet!!')
 
         link_elements = soup.select("a[href]")
         for link_element in link_elements:
@@ -210,7 +248,7 @@ def get_content_type_from_response_header(content_type_header):
     else:
         return content_type_fields[1]
 
-def save_url_content_to_file(current_url, content, content_type, file_basename):
+def save_url_content_to_file(current_url, response, content_type, file_basename):
     file_extension = ''
     if len(os.path.splitext(file_basename)[1]) == 0: 
             file_extension = '.' + content_type
@@ -223,10 +261,13 @@ def save_url_content_to_file(current_url, content, content_type, file_basename):
     try:
         if content_type.lower() in PDF_CONTENT_TYPE:
             with open(filename, 'wb') as file:
-                file.write(content)
+                # for chunk in response.iter_content(chunk_size = 1024):
+                #     file.write(chunk)
+                response.raw.decode_content = True
+                shutil.copyfileobj(response.raw, file)
         else:
             with open(filename, 'w', encoding='utf-8') as file:
-                file.write(str(content))
+                file.write(str(response.content))
     except Exception as e:
         logger.error(f'ERROR: exception writing content of {current_url} into file <{filename}>: {e}')
         return True
@@ -239,6 +280,8 @@ def get_args():
     parser.add_argument('-u', '--ROOT_URL', help="root url of webpage or website to be crawled", required=True)
     parser.add_argument('-t', '--ROOT_URL_TLD_CRAWL_FLAG', help="flag to indicate to crawl all of the pages matching top level domain of url", required=False)
     parser.add_argument('-d', '--MAX_DEPTH', help="depth of web pages to crawl", default=MAX_DEPTH_DEFAULT, required=False)
+    parser.add_argument('-m', '--SAVE_MEDIA_FILES_FLAG', help="flag to save media files (images, audio and video) found on webpages", 
+                        action='store_true')
     parser.add_argument('-s', '--SAVE_CRAWL_TO_FILE_FLAG', help="flag to indicate to save list of crawled pages to a file", 
                         default=save_crawl_to_file_DEFAULT, required=False)
     parser.add_argument('-f', '--FORCE_CRAWL_FLAG', help="flag to indicate to force crawl of previously crawled pages", 
