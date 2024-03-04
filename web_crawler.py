@@ -17,6 +17,7 @@ import re
 import requests
 import urllib
 import shutil
+import time
 
 
 import logging
@@ -45,6 +46,8 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from tldextract import extract as tld_extract
 from openpyxl import Workbook, load_workbook
+# from selenium import webdriver
+from requests_html import HTMLSession
 
 def main(args):
     logger.info(f'main(): started with arguments: {args}')
@@ -57,6 +60,14 @@ def main(args):
           args.FORCE_CRAWL_FLAG)
 
 def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_files, output_dir, save_crawl_to_file, force_crawl):
+
+    # options = webdriver.ChromeOptions()
+    # options.add_argument('--ignore-certificate-errors')
+    # options.add_argument('--incognito')
+    # options.add_argument('--headless')
+    # driver = webdriver.Chrome( executable_path=r'./chromedriver.exe', options=options)
+    html_session = HTMLSession()
+
     root_url = root_url.strip('/')
     root_url_parsed = urlparse(root_url)
     root_domain = root_url_parsed.netloc
@@ -116,18 +127,28 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
             continue
         logger.info(f'Visiting link <{current_url}> at depth {len(current_url_path)}: visited: {len(visited_url_paths)}, remaining: {len(url_paths)}')
         try:
-            response = requests.get(current_url, 
+            # driver.get(current_url)
+            # more_buttons = driver.find_elements_by_class_name("moreLink")
+            # for x in range(len(more_buttons)):
+            #     if more_buttons[x].is_displayed():
+            #         driver.execute_script("arguments[0].click();", more_buttons[x])
+            #         time.sleep(1)
+            # page_source = driver.page_source
+            response = html_session.get(current_url, 
+                        # requests.get(current_url, 
                                     headers = {'User-Agent': 'Mozilla/5.0'
                                             #    ,'Client-ID': '<some id>'
                                                }
                                     # , stream = True   # TODO: add this for urls with media files
                                     )
+            response.html.render()
+            # content = response.content
+            content = response.html.html
         except Exception as e:
             logger.error(f'ERROR: exception while fetching {current_url}: {e}')
             continue
         try:
             content_type_header = response.headers.get(CONTENT_TYPE_HEADER)
-            content = response.content
         except Exception as e:
             logger.error(f'ERROR: exception while parsing header and content in response from {current_url}: {e}')
             continue
@@ -136,7 +157,7 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
         if len(content_types) > 0 and re.match(content_types, content_type, re.IGNORECASE) is None:
             logger.error(f'--Skipping <{current_url}>: content type {content_type} not matching any of the content types: {content_types}')
             continue
-        save_result = save_url_content_to_file(current_url, content, content_type, save_file_basename)
+        save_result = save_url_content_to_file(current_url, response, content_type, save_file_basename)
         if save_result and save_crawl_to_file:
             wb = load_workbook(crawl_filename)
             ws = wb.active
@@ -267,10 +288,12 @@ def save_url_content_to_file(current_url, response, content_type, file_basename)
                 shutil.copyfileobj(response.raw, file)
         else:
             with open(filename, 'w', encoding='utf-8') as file:
-                file.write(str(response.content))
+                # file.write(str(response.content))
+                file.write(str(response.text))
     except Exception as e:
         logger.error(f'ERROR: exception writing content of {current_url} into file <{filename}>: {e}')
-        return True
+        return False
+    return True
 
 
 def get_args():
