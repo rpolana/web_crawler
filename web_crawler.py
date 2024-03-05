@@ -95,8 +95,9 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
         logger.info(f'Loaded {len(saved_files)} saved file basenames from directory {save_dir}')
 
     if save_crawl_to_file:
-        crawl_filename = os.path.join(output_dir, root_domain + '-c_'+ content_types + '-d_'+str(max_depth) + CRAWL_FILENAME_SUFFIX)
+        crawl_filename = root_domain + '-c_'+ content_types + '-d_'+str(max_depth) + CRAWL_FILENAME_SUFFIX
         crawl_filename = urllib.parse.quote(crawl_filename, safe='', encoding=None, errors=None)
+        crawl_filename = os.path.join(output_dir, crawl_filename)
 
         logger.info(f'crawl_filename={crawl_filename}')
         if os.path.exists(crawl_filename) and not force_crawl:
@@ -271,7 +272,7 @@ def get_content_type_from_response_header(content_type_header):
 
 def save_url_content_to_file(current_url, response, content_type, file_basename):
     file_extension = ''
-    if len(os.path.splitext(file_basename)[1]) == 0: 
+    if (content_type.lower()  in HTML_CONTENT_TYPE) or (len(os.path.splitext(file_basename)[1]) == 0): 
             file_extension = '.' + content_type
     filename = file_basename + file_extension
 
