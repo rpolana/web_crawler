@@ -31,8 +31,10 @@ XML_EXTENSION = '.xml'
 CONTENT_TYPE_HEADER = 'Content-Type'
 PDF_CONTENT_TYPE = 'application/pdf'
 HTML_CONTENT_TYPE = 'text/html'
+TEXT_CONTENT_TYPE = 'text'
 JSON_CONTENT_TYPE = 'application/json'
 XML_CONTENT_TYPE = 'application/xml'
+IMAGE_CONTENT_TYPES = 'jpeg|jpg'
 CRAWL_FILENAME_SUFFIX = '_crawled_pages.xlsx'
 VISITED_URLS_COLUMN = 0
 VISITED_URL_PATHS_COLUMN = 2
@@ -48,6 +50,7 @@ from tldextract import extract as tld_extract
 from openpyxl import Workbook, load_workbook
 # from selenium import webdriver
 from requests_html import HTMLSession
+from requests.exceptions import ConnectionError, InvalidSchema, ReadTimeout
 
 def main(args):
     logger.info(f'main(): started with arguments: {args}')
@@ -140,11 +143,9 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
                                     headers = {'User-Agent': 'Mozilla/5.0'
                                             #    ,'Client-ID': '<some id>'
                                                }
+                                    , timeout=5
                                     # , stream = True   # TODO: add this for urls with media files
                                     )
-            response.html.render()
-            # content = response.content
-            content = response.html.html
         except Exception as e:
             logger.error(f'ERROR: exception while fetching {current_url}: {e}')
             continue
@@ -155,16 +156,38 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
             continue
         content_type = get_content_type_from_response_header(content_type_header)
 
+        if content_type.lower() in HTML_CONTENT_TYPE:
+            try:
+                response.html.render(sleep = 1, timeout = 5)  # ensures all content in html document is rendered 
+                content = response.html.html
+            # except InvalidSchema as e:
+            #     logger.warning(f'InvalidSchema exception while rendering html content in {current_url}: {e}')
+            #     content = response.content
+            # except ReadTimeout as e:
+            #     logger.warning(f'ReadTimeout exception while rendering html content in {current_url}: {e}')
+            #     content = response.content
+            # except ConnectionError as e:
+            #     logger.warning(f'ConnectionError exception while rendering html content in {current_url}: {e}')
+            #     content = response.content
+            # except TimeoutError as e:
+            #     logger.warning(f'Timeout exception while rendering html content in {current_url}: {e}')
+            #     content = response.content
+            except Exception as e:
+                logger.warning(f'Exception while rendering html content in {current_url}: {e}')
+                content = response.content
+        else:
+            content = response.content
+
         if len(content_types) > 0 and re.match(content_types, content_type, re.IGNORECASE) is None:
             logger.error(f'--Skipping <{current_url}>: content type {content_type} not matching any of the content types: {content_types}')
-            continue
-        save_result = save_url_content_to_file(current_url, response, content_type, save_file_basename)
-        if save_result and save_crawl_to_file:
-            wb = load_workbook(crawl_filename)
-            ws = wb.active
-            ws.append([current_url, str(len(content)), ', '.join(current_url_path)])
-            logger.debug(f'Saved {current_url} to {crawl_filename}')
-            wb.save(crawl_filename)
+        else:
+            save_result = save_url_content_to_file(current_url, response, content_type, save_file_basename)
+            if save_result and save_crawl_to_file:
+                wb = load_workbook(crawl_filename)
+                ws = wb.active
+                ws.append([current_url, str(len(content)), ', '.join(current_url_path)])
+                logger.debug(f'Saved {current_url} to {crawl_filename}')
+                wb.save(crawl_filename)
         # mark the current URL as visited
         visited_url_paths.append(current_url_path)
         visited_urls.add(current_url)
@@ -261,6 +284,8 @@ def get_save_file_basename(output_dir, current_url):
 
 
 def get_content_type_from_response_header(content_type_header):
+    if content_type_header is None:
+        return 'None'
     content_type = content_type_header.split(';')[0]
     content_type_fields = content_type.split('/')
     if len(content_type_fields) == 1:
@@ -283,14 +308,20 @@ def save_url_content_to_file(current_url, response, content_type, file_basename)
     try:
         if content_type.lower() in PDF_CONTENT_TYPE:
             with open(filename, 'wb') as file:
-                # for chunk in response.iter_content(chunk_size = 1024):
-                #     file.write(chunk)
-                response.raw.decode_content = True
-                shutil.copyfileobj(response.raw, file)
-        else:
+                for chunk in response.iter_content(chunk_size = 1024):
+                    file.write(chunk)
+                # response.raw.decode_content = True
+                # shutil.copyfileobj(response.raw, file)
+        elif content_type.lower() in HTML_CONTENT_TYPE or content_type.lower() in TEXT_CONTENT_TYPE:
             with open(filename, 'w', encoding='utf-8') as file:
                 # file.write(str(response.content))
                 file.write(str(response.text))
+        else: # write as binary
+            with open(filename, 'wb') as file:
+                for chunk in response.iter_content(chunk_size = 1024):
+                    file.write(chunk)
+                # response.raw.decode_content = True
+                # shutil.copyfileobj(response.raw, file)
     except Exception as e:
         logger.error(f'ERROR: exception writing content of {current_url} into file <{filename}>: {e}')
         return False

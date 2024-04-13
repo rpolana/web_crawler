@@ -3,3 +3,6 @@
 /*.zip
 /*output/
 /data/
+/dist
+/build
+/*.spec
