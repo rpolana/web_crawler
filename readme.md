@@ -39,6 +39,7 @@ __license__ = "MIT"
 
 ## Quality considerations: Security, robustness, performance etc.
 ## TODO
+    * 05May2024: Fix issue: Encoded url cannot be used for filename extension.  For example when url for an excel file has .xlsx at end followed by version and other info of the file.  To fix: Add custom extension based on detected content type at end of result after urllib.parse.quote on url. Do not use extension for url when getting back the url from filename: decoding needs to ignore (remove) the extension and use urllib.parse.unquote on the basename to get the exact url. 
 <s>    * 22Feb2024: Fix issue: pdf files not opening (corrupted) after last set of new changes. 
         ** 22Feb2024: Done </s>    
     * Fix the web page file saving to .html in a way that when the file is opened in browser it looks exactly like the webpage (right now looks like the script and css file links are missing when saved)

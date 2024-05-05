@@ -18,11 +18,13 @@ import requests
 import urllib
 import shutil
 import time
+import string
 
 
 import logging
 LOGGER_NAME =  os.path.splitext(os.path.basename(__file__))[0]
 logger = logging.getLogger(name=LOGGER_NAME) # root logger by default, pass LOGGER_NAME for script specific log file
+logging.raiseExceptions = False
 
 HTML_EXTENSION = '.html'
 JSON_EXTENSION = '.json'
@@ -42,6 +44,7 @@ save_crawl_to_file_DEFAULT = True
 OUTPUT_DIR_DEFAULT = r'./web_crawler_output'
 MAX_DEPTH_DEFAULT = 0
 SAVE_MEDIA_FILES_FLAG = False
+EXTERNAL_FILE_TYPES_TO_DOWNLOAD = ".pdf | .docx | .xlsx | .pptx | .json "
 
 
 from bs4 import BeautifulSoup
@@ -50,8 +53,22 @@ from tldextract import extract as tld_extract
 from openpyxl import Workbook, load_workbook
 # from selenium import webdriver
 from requests_html import HTMLSession
+
 from requests.exceptions import ConnectionError, InvalidSchema, ReadTimeout
 
+from pydantic import BaseModel, HttpUrl, ValidationError
+class UrlValidator(BaseModel):
+    url: HttpUrl
+
+def validate(url: str):
+    try:
+        UrlValidator(url=url)
+    except ValidationError as e:
+        logger.fatal(f"Exception validating url <{url}>: {e}")
+        raise e
+    logger.info(f"Crawling url: <{url}>")
+
+    
 def main(args):
     logger.info(f'main(): started with arguments: {args}')
     """ Main logic """
@@ -72,7 +89,14 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
     html_session = HTMLSession()
 
     root_url = root_url.strip('/')
+    validate(root_url)
     root_url_parsed = urlparse(root_url)
+    if not root_url_parsed.scheme or not root_url_parsed.netloc or not root_url_parsed.hostname:
+        logger.fatal(f'Invalid root_url=<{root_url}>: empty scheme or domain/server or hostname')
+        sys.exit(1)
+    if root_url_parsed.scheme == root_url_parsed.hostname:
+        logger.fatal(f'Invalid root_url=<{root_url}>: scheme and hostname are same')
+        sys.exit(1)
     root_domain = root_url_parsed.netloc
     if crawl_root_url_tld:
         # root_tld = '.'.join(root_domain.split('.')[-2:])
@@ -143,7 +167,7 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
                                     headers = {'User-Agent': 'Mozilla/5.0'
                                             #    ,'Client-ID': '<some id>'
                                                }
-                                    , timeout=5
+                                    , timeout=60
                                     # , stream = True   # TODO: add this for urls with media files
                                     )
         except Exception as e:
@@ -156,9 +180,9 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
             continue
         content_type = get_content_type_from_response_header(content_type_header)
 
-        if content_type.lower() in HTML_CONTENT_TYPE:
+        if content_type.lower() in HTML_CONTENT_TYPE or content_type.lower() in JSON_CONTENT_TYPE:
             try:
-                response.html.render(sleep = 1, timeout = 5)  # ensures all content in html document is rendered 
+                response.html.render(sleep = 1, timeout = 10)  # ensures all content in html document is rendered 
                 content = response.html.html
             # except InvalidSchema as e:
             #     logger.warning(f'InvalidSchema exception while rendering html content in {current_url}: {e}')
@@ -194,11 +218,11 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
         logger.debug(f'--Visited link <{current_url}> at depth {len(current_url_path)}: visited: {len(visited_urls)}, remaining: {len(url_paths)}')
         
         if max_depth > 0 and len(current_url_path) >= max_depth:
-            logger.info(f'--Skipping links in <{current_url_path}>: max depth {max_depth} reached')
+            logger.info(f'--Skipping links in <{current_url}>: max depth {max_depth} reached')
             continue
 
-        # if current url is html, parse and crawl links within
-        if not content_type.lower() in HTML_CONTENT_TYPE:
+        # if current url is html or json (which is returned by apis), parse and crawl links within
+        if not (content_type.lower() in HTML_CONTENT_TYPE or content_type.lower() in JSON_CONTENT_TYPE):
             continue
         try:
             soup = BeautifulSoup(content, "html5lib")
@@ -239,7 +263,7 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
 
         link_elements = soup.select("a[href]")
         for link_element in link_elements:
-            url = link_element['href'].strip('/')
+            url = link_element['href'].strip('\\"/')
             if len(url) == 0 or url == '.':
                 continue
 
@@ -271,16 +295,30 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
                 else:
                     logger.debug(f'--Discarding link <{url}>: already visited')
             else:
-                logger.debug(f'--Discarding link <{url}>: external domain')
+                url_path_split = os.path.splitext(url_parsed.path)
+                if len(url_path_split[1]) == 0 or not url_path_split[1] in EXTERNAL_FILE_TYPES_TO_DOWNLOAD:
+                    logger.debug(f'--Discarding link <{url}>: external domain')
+                else: 
+                    if url not in visited_urls and url not in urls:
+                        logger.info(f'---Appending new link <{url}> at depth {len(current_url_path)+1} from url <{current_url}>: queue length={len(url_paths)}')
+                        url_path = current_url_path + [url]
+                        url_paths.append(url_path)
+                        urls.add(url)
+                    else:
+                        logger.debug(f'--Discarding link <{url}>: already visited or queued to visit')
 
 def get_save_file_basename(output_dir, current_url):
     url_parsed = urlparse(current_url)
     file_basename = url_parsed.netloc
     url_path_to_file_basename = ''
     if len(url_parsed.path) > 0 and len(url_parsed.path[1:]) > 0:
-        url_path_to_file_basename = urllib.parse.quote(url_parsed.path, safe='', encoding=None, errors=None)
+        if len(url_parsed.query) >0:
+            url_path_to_file_basename = urllib.parse.quote(url_parsed.path+'?'+url_parsed.query, safe='', encoding=None, errors=None)
+        else:
+            url_path_to_file_basename = urllib.parse.quote(url_parsed.path, safe='', encoding=None, errors=None)
         # path_to_file_basename += url_parsed.path.replace('/', '_')
-    return os.path.join(output_dir, file_basename + url_path_to_file_basename)
+    full_filename = os.path.join(output_dir, file_basename + url_path_to_file_basename)
+    return full_filename
 
 
 def get_content_type_from_response_header(content_type_header):
