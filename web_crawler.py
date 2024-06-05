@@ -167,6 +167,7 @@ def crawl(root_url, crawl_root_url_tld, content_types, max_depth, save_media_fil
                                     headers = {'User-Agent': 'Mozilla/5.0'
                                             #    ,'Client-ID': '<some id>'
                                                }
+                                    , verify=False
                                     , timeout=60
                                     # , stream = True   # TODO: add this for urls with media files
                                     )
