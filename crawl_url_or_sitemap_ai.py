@@ -49,9 +49,9 @@ logger = logging.getLogger(name=LOGGER_NAME) # root logger by default, pass LOGG
 logging.raiseExceptions = False
 
 # Configuration
-ROOT_URL_DEFAULT = '' # 'https://crawl4ai.com'
-SITEMAP_URL_DEFAULT = "https://ai.pydantic.dev/sitemap.xml"  # 'https://docs.crawl4ai.com/sitemap.xml' # "https://www.cnn.com/sitemap.xml"  # your sitemap URL
-MAX_DEPTH_DEFAULT = 10  # Limit web pages crawl depth
+ROOT_URL_DEFAULT = 'https://docs.n8n.io/' # '' 
+SITEMAP_URL_DEFAULT = ''  # "https://ai.pydantic.dev/sitemap.xml"  # 'https://docs.crawl4ai.com/sitemap.xml' # "https://www.cnn.com/sitemap.xml"  # your sitemap URL
+MAX_DEPTH_DEFAULT = 20  # Limit web pages crawl depth
 FORCE_CRAWL = True  # Force crawl of previously crawled pages
 BATCH_SIZE = 2  # Number of concurrent crawls
 REQUEST_DELAY = 1  # Delay between requests (seconds)
@@ -156,7 +156,7 @@ def add_chaild_url(url, parent_url, root_domain, depth, queue, visited_urls):
             url_parsed = urlparse(url)
             logger.debug(f'-Reset domain: <{url}>: urlparsed: {url_parsed}: in url <{parent_url}>')
     url = urldefrag(url).url
-    if root_domain in url_parsed.netloc:
+    if parent_url_parsed.netloc in url_parsed.netloc:
         if (url, depth+1) in queue:
             # logger.debug(f'--Discarding link <{url}>: already in queue')
             return -5, 'Already in queue'
@@ -179,7 +179,7 @@ def add_chaild_url(url, parent_url, root_domain, depth, queue, visited_urls):
         #         urls.add(url)
         #     else:
         #         logger.debug(f'--Discarding link <{url}>: already visited or queued to visit')
-        return -7, 'External domain URL'
+        return -7, 'External or out-of-scope URL'
     return 0, 'Unknown error adding child URL'
 
 async def crawl_url(url, root_domain, crawler, run_config, depth, max_depth, semaphore, visited_urls, queue, 
@@ -208,7 +208,7 @@ async def crawl_url(url, root_domain, crawler, run_config, depth, max_depth, sem
                     if url not in previously_crawled_urls:
                         # Save extracted data
                         # await write_to_json(data, os.path.join(root_domain, root_domain + "_data"), "jsonl")
-                        await write_to_txt(data, os.path.join(root_domain, root_domain + "_data")
+                        await write_to_txt(data, os.path.join(root_domain, root_domain + "_data"))
                         if crawled_urls_filename is not None:
                             async with wb_lock:
                                 wb = load_workbook(crawled_urls_filename)
@@ -433,10 +433,11 @@ async def main(args):
         await log_message(f"✅ Found {len(urls)} pages in the sitemap with root domin {root_domain}.")
     else:
         await log_message("❌ No sitemap URL provided.")
-
+    
     if len(urls) == 0:
         await log_message("❌ Exiting: No URLs to crawl.")
         return
+    os.makedirs(os.path.join(OUTPUT_DIR_DEFAULT, root_domain), exist_ok=True)
 
     await log_message(f"✅ Starting crawl of {len(urls)} urls with max depth {args.MAX_DEPTH}, batch_size={args.BATCH_SIZE}...")
     if args.USER_QUERY is not None:
