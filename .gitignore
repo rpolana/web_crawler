@@ -7,3 +7,12 @@
 /build
 /*.spec
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.DS_Store
+*.egg
+*.egg-info
+*.whl
+*.tar
+*.tar.*
